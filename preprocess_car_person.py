@@ -82,6 +82,7 @@ def preprocess(split_list, has_label=False, tag='train'):
                     D1, D2 = float('%.5f' % (d1 * 80)), float('%.5f' % (d2 * 80))
                     class_label, truncated, occluded = labels[id].split()[:3]
                     truncated, occluded = int(float(truncated)), int(occluded)
+                    # if you use 3 catelories, you don't need so this step
                     if class_label in ['Pedestrian', 'Cyclist']:
                         class_label = 'Person'
                     if class_label in cats and D1 < 80:
