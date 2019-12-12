@@ -12,17 +12,11 @@ H_MAX = 1
 D_MIN = 0
 D_MAX = 80
 
-num_height = 128
-num_width = 512
-
-HEIGHT = 128
-WIDTH = 512
-
 DATA_DIR = '/data/dataset/KITTI/object/'
 PRO_DIR = '/data/dataset/kitti_fvnet/projection/'
 REF_DIR = '/data/dataset/kitti_fvnet/refinement/'
 
-cats = ['Car', 'Person']
+cats = ['Car', 'Person'] # you can use ['Car', 'Pedestrian', 'Cyclist'] for 3 catelories
 cat_ids = {cat: i + 1 for i, cat in enumerate(cats)}
 cat_info = []
 for i, cat in enumerate(cats):
@@ -65,8 +59,10 @@ def preprocess(split_list, has_label=False, tag='train'):
         P, Tr_velo_to_cam, R_cam_to_rect = load_calib(calib_path)
         idx = crop_camera(pts, P, Tr_velo_to_cam, R_cam_to_rect)
         pts = pts[idx]
+        # crop point clouds for refinement network, of course you can use raw .bin for training
         points_save_path = REF_DIR + tag + '/cropped/' + line + '.npy'
         np.save(points_save_path, pts)
+        # just for visualization, you can open .xyz files by MeshLab software directly
         points_save_path = REF_DIR + tag + '/vis/' + line + '.xyz'
         np.savetxt(points_save_path, pts[:,0:3])
 
@@ -181,7 +177,7 @@ def fz(a):
 def FZ(mat):
     return np.array(fz(list(map(fz, mat))))
 
-
+# need further optimization for faster processing speed, such as C++ code
 def get_map_and_boxes2d(points, return_map=True, bounding_boxes=None):
     x = points[:, 0]
     y = points[:, 1]
@@ -205,7 +201,7 @@ def get_map_and_boxes2d(points, return_map=True, bounding_boxes=None):
 
         height_ratio = (z - H_MIN) / h_range
         dist_ratio = (plane_dist - D_MIN) / d_range
-
+        # here I use a fusion of 3 front maps to generate the final front map, and you can just use one of them
         # 128x512
         front_map_0 = np.zeros((128, 512, 3))
         index_h_0 = np.floor((zenith - Z_MIN) / z_range * 128).astype(np.int)
