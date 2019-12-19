@@ -60,10 +60,10 @@ def preprocess(split_list, has_label=False, tag='train'):
         idx = crop_camera(pts, P, Tr_velo_to_cam, R_cam_to_rect)
         pts = pts[idx]
         # crop point clouds for refinement network, of course you can use raw .bin for training
-        points_save_path = REF_DIR + tag + '/cropped/' + line + '.npy'
+        points_save_path = REF_DIR + folder + '/cropped/' + line + '.npy'
         np.save(points_save_path, pts)
         # just for visualization, you can open .xyz files by MeshLab software directly
-        points_save_path = REF_DIR + tag + '/vis/' + line + '.xyz'
+        points_save_path = REF_DIR + folder + '/vis/' + line + '.xyz'
         np.savetxt(points_save_path, pts[:,0:3])
 
         # label
