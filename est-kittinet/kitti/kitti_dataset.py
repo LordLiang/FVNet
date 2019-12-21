@@ -54,7 +54,7 @@ class KittiDataset(object):
                       "xyz_mean": xyz_mean, "prob": prob}
         else:
             label = self.labels[index].split(' ')
-            h, w, l, x, y, z, ry = np.array(label[2:9], dtype=np.float32)
+            h, w, l, x, y, z, ry = np.array(label[9:], dtype=np.float32)
             y -= h/2
             size = np.array([l, w, h])
             center = np.array([x, y, z]) - xyz_mean
