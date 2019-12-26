@@ -139,6 +139,157 @@ def fv_eval(detpath,
   for imagename in imagenames:
     R = [obj for obj in recs[imagename] if obj['name'] == classname]
     bbox = np.array([x['bbox'] for x in R])
+    if use_diff:
+      difficult = np.array([False for x in R]).astype(np.bool)
+    else:
+      difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
+    det = [False] * len(R)
+    npos = npos + sum(~difficult)
+    class_recs[imagename] = {'bbox': bbox,
+                             'difficult': difficult,
+                             'det': det}
+
+  # read dets
+  detfile = detpath.format(classname)
+  with open(detfile, 'r') as f:
+    lines = f.readlines()
+
+  splitlines = [x.strip().split(' ') for x in lines]
+  image_ids = [x[0] for x in splitlines]
+  confidence = np.array([float(x[1]) for x in splitlines])
+  BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
+  
+  nd = len(image_ids)
+  tp = np.zeros(nd)
+  fp = np.zeros(nd)
+  if BB.shape[0] > 0:
+    # sort by confidence
+    sorted_ind = np.argsort(-confidence)
+    sorted_scores = np.sort(-confidence)
+    BB = BB[sorted_ind, :]
+    image_ids = [image_ids[x] for x in sorted_ind]
+
+    # go down dets and mark TPs and FPs
+    for d in range(nd):
+      R = class_recs[image_ids[d]]
+      bb = BB[d, :].astype(float)
+      ovmax = -np.inf
+      ovmax2 = -np.inf
+      BBGT = R['bbox'].astype(float)
+
+      if BBGT.size > 0:
+        # compute overlaps
+        # intersection
+        ixmin = np.maximum(BBGT[:, 0], bb[0])
+        iymin = np.maximum(BBGT[:, 1], bb[1])
+        ixmax = np.minimum(BBGT[:, 2], bb[2])
+        iymax = np.minimum(BBGT[:, 3], bb[3])
+        iw = np.maximum(ixmax - ixmin + 1., 0.)
+        ih = np.maximum(iymax - iymin + 1., 0.)
+        inters = iw * ih
+
+        # union
+        uni = ((bb[2] - bb[0] + 1.) * (bb[3] - bb[1] + 1.) +
+               (BBGT[:, 2] - BBGT[:, 0] + 1.) *
+               (BBGT[:, 3] - BBGT[:, 1] + 1.) - inters)
+               
+        overlaps = inters / uni
+        ovmax = np.max(overlaps)
+        jmax = np.argmax(overlaps)
+
+      if ovmax > ovthresh:
+        if not R['difficult'][jmax]:
+          if not R['det'][jmax]:
+            tp[d] = 1.
+            R['det'][jmax] = 1
+          else:
+            fp[d] = 1.
+      else:
+        fp[d] = 1.
+
+  # compute precision recall
+  fp = np.cumsum(fp)
+  tp = np.cumsum(tp)
+  rec = tp / float(npos)
+  # avoid divide by zero in case the first detection matches a difficult
+  # ground truth
+  prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
+  ap = voc_ap(rec, prec, use_07_metric)
+  
+  return rec, prec, ap
+  
+
+def fv_eval2(detpath,
+             annopath,
+             imagesetfile,
+             classname,
+             cachedir,
+             ovthresh=0.5,
+             use_07_metric=False,
+             use_diff=False):
+  """rec, prec, ap = voc_eval(detpath,
+                              annopath,
+                              imagesetfile,
+                              classname,
+                              [ovthresh],
+                              [use_07_metric])
+
+  Top level function that does the PASCAL VOC evaluation.
+
+  detpath: Path to detections
+      detpath.format(classname) should produce the detection results file.
+  annopath: Path to annotations
+      annopath.format(imagename) should be the xml annotations file.
+  imagesetfile: Text file containing the list of images, one image per line.
+  classname: Category name (duh)
+  cachedir: Directory for caching the annotations
+  [ovthresh]: Overlap threshold (default = 0.5)
+  [use_07_metric]: Whether to use VOC07's 11 point AP computation
+      (default False)
+  """
+  # assumes detections are in detpath.format(classname)
+  # assumes annotations are in annopath.format(imagename)
+  # assumes imagesetfile is a text file with each line an image name
+  # cachedir caches the annotations in a pickle file
+
+  # first load gt
+  if not os.path.isdir(cachedir):
+    os.mkdir(cachedir)
+
+  image_set = imagesetfile.split('/')[-1].split('.')[0]
+  cachefile = os.path.join(cachedir, '%s_annots.pkl' % image_set)
+  # read list of images
+  with open(imagesetfile, 'r') as f:
+    lines = f.readlines()
+  imagenames = [x.strip() for x in lines]
+
+  if not os.path.isfile(cachefile):
+    # load annotations
+    recs = {}
+    for i, imagename in enumerate(imagenames):
+      recs[imagename] = parse_rec(annopath.format(imagename))
+      if i % 100 == 0:
+        print('Reading annotation for {:d}/{:d}'.format(
+          i + 1, len(imagenames)))
+    # save
+    print('Saving cached annotations to {:s}'.format(cachefile))
+    with open(cachefile, 'wb') as f:
+      pickle.dump(recs, f)
+  else:
+    # load
+    with open(cachefile, 'rb') as f:
+      try:
+        recs = pickle.load(f)
+      except:
+        recs = pickle.load(f, encoding='bytes')
+
+  # extract gt objects for this class
+  class_recs = {}
+  npos = 0
+
+  for imagename in imagenames:
+    R = [obj for obj in recs[imagename] if obj['name'] == classname]
+    bbox = np.array([x['bbox'] for x in R])
     depth = np.array([x['depth'] for x in R])
     if use_diff:
       difficult = np.array([False for x in R]).astype(np.bool)
@@ -164,7 +315,8 @@ def fv_eval(detpath,
   nd = len(image_ids)
   tp = np.zeros(nd)
   fp = np.zeros(nd)
-  depth_iou = np.zeros(nd)
+  depth_tp = np.zeros(nd)
+  depth_fp = np.zeros(nd)
   if BB.shape[0] > 0:
     # sort by confidence
     sorted_ind = np.argsort(-confidence)
@@ -177,6 +329,7 @@ def fv_eval(detpath,
       R = class_recs[image_ids[d]]
       bb = BB[d, :].astype(float)
       ovmax = -np.inf
+      ovmax2 = -np.inf
       BBGT = R['bbox'].astype(float)
       DPGT = R['depth'].astype(float)
 
@@ -200,23 +353,27 @@ def fv_eval(detpath,
         ovmax = np.max(overlaps)
         jmax = np.argmax(overlaps)
         
+        inters_dep = min(DPGT[jmax][1], bb[5]) - max(DPGT[jmax][0], bb[4])
+        uni_dep = max(DPGT[jmax][1], bb[5]) - min(DPGT[jmax][0], bb[4])
+        ovmax2 = inters_dep / uni_dep
+        
       if ovmax > ovthresh:
         if not R['difficult'][jmax]:
           if not R['det'][jmax]:
             tp[d] = 1.
             R['det'][jmax] = 1
-            inters_dep = min(DPGT[jmax][1], bb[5]) - max(DPGT[jmax][0], bb[4])
-            uni_dep = max(DPGT[jmax][1], bb[5]) - min(DPGT[jmax][0], bb[4])
-            if inters_dep > 0 and uni_dep > 0:
-              depth_iou[d] = inters_dep / uni_dep
-            
           else:
             fp[d] = 1.
       else:
         fp[d] = 1.
+        
+      if ovmax2 > ovthresh:
+        if not R['difficult'][jmax]:
+          depth_tp[d] = 1.
+      else:
+        depth_fp[d] = 1.
 
   # compute precision recall
-  depth_iou = depth_iou.sum() / tp.sum()
   fp = np.cumsum(fp)
   tp = np.cumsum(tp)
   rec = tp / float(npos)
@@ -224,5 +381,11 @@ def fv_eval(detpath,
   # ground truth
   prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
   ap = voc_ap(rec, prec, use_07_metric)
-
-  return rec, prec, ap, depth_iou
+  
+  depth_tp = np.cumsum(depth_tp)
+  depth_fp = np.cumsum(depth_fp)
+  depth_rec = depth_tp / float(npos)
+  depth_prec = depth_tp / np.maximum(depth_tp + depth_fp, np.finfo(np.float64).eps)
+  depth_ap = voc_ap(depth_rec, depth_prec, use_07_metric)
+  
+  return rec, prec, ap, depth_ap

@@ -19,7 +19,7 @@ import scipy.io as sio
 import pickle
 import subprocess
 import uuid
-from .fv_eval import fv_eval
+from .fv_eval import fv_eval2
 from model.config import cfg
 
 
@@ -240,16 +240,16 @@ class pascal_fv(imdb):
       if cls == '__background__':
         continue
       filename = self._get_voc_results_file_template().format(cls)
-      rec, prec, ap, depth_iou = fv_eval(
+      rec, prec, ap, depth_iou = fv_eval2(
         filename, annopath, imagesetfile, cls, cachedir, ovthresh=0.5,
         use_07_metric=use_07_metric, use_diff=self.config['use_diff'])
       aps += [ap]
       depth_ious += [depth_iou]
-      print(('AP for {} = {:.4f}, Depth IOU for {} = {:.4f}'.format(cls, ap, cls, depth_iou)))
+      print(('AP for {} = {:.4f}, Depth AP for {} = {:.4f}'.format(cls, ap, cls, depth_iou)))
       if output_dir is not None:
         with open(os.path.join(output_dir, cls + '_pr.pkl'), 'wb') as f:
           pickle.dump({'rec': rec, 'prec': prec, 'ap': ap, 'depth_iou':depth_iou}, f)
-    print(('Mean AP = {:.4f}, Mean Depth IOU = {:.4f}'.format(np.mean(aps), np.mean(depth_ious))))
+    print(('Mean AP = {:.4f}, Mean Depth AP = {:.4f}'.format(np.mean(aps), np.mean(depth_ious))))
     print('~~~~~~~~')
     '''
     print('Results:')
@@ -275,7 +275,7 @@ class pascal_fv(imdb):
     cmd = 'cd {} && '.format(path)
     cmd += '{:s} -nodisplay -nodesktop '.format(cfg.MATLAB)
     cmd += '-r "dbstop if error; '
-    cmd += 'fv_eval(\'{:s}\',\'{:s}\',\'{:s}\',\'{:s}\'); quit;"' \
+    cmd += 'fv_eval2(\'{:s}\',\'{:s}\',\'{:s}\',\'{:s}\'); quit;"' \
       .format(self._devkit_path, self._get_comp_id(),
               self._image_set, output_dir)
     print(('Running:\n{}'.format(cmd)))
