@@ -5,6 +5,9 @@ from PIL import Image
 import json
 import time
 from xml.dom.minidom import Document
+import numba
+from numba import njit
+from numba.typed import List
 
 H_MIN = -3
 H_MAX = 1
@@ -13,8 +16,8 @@ D_MIN = 0
 D_MAX = 80
 
 DATA_DIR = '/data/dataset/KITTI/object/'
-PRO_DIR = '/data/dataset/kitti_fvnet/projection/'
-REF_DIR = '/data/dataset/kitti_fvnet/refinement/'
+PRO_DIR = '/data/dataset/kitti_fvnet2/projection/'
+REF_DIR = '/data/dataset/kitti_fvnet2/refinement/'
 
 cats = ['Car', 'Person'] # you can use ['Car', 'Pedestrian', 'Cyclist'] for 3 catelories
 cat_ids = {cat: i + 1 for i, cat in enumerate(cats)}
@@ -46,7 +49,7 @@ def preprocess(split_list, has_label=False, tag='train'):
         if line[-1] == '\n':
             line = line[:-1]
         image_id = int(line)
-        print('preprocessing', tag, image_id)
+        #print('preprocessing', tag, image_id)
         image_info = {'file_name': '{}.png'.format(line), 'id': image_id}
         ret['images'].append(image_info)
         
@@ -59,18 +62,18 @@ def preprocess(split_list, has_label=False, tag='train'):
         P, Tr_velo_to_cam, R_cam_to_rect = load_calib(calib_path)
         idx = crop_camera(pts, P, Tr_velo_to_cam, R_cam_to_rect)
         pts = pts[idx]
-        # crop point clouds for refinement network, of course you can use raw .bin for training
+        # crop point clouds to reduce the data input for PE-Net, of course you can just use raw .bin directly
         points_save_path = REF_DIR + folder + '/cropped/' + line + '.npy'
         np.save(points_save_path, pts)
         # just for visualization, you can open .xyz files by MeshLab software directly
-        points_save_path = REF_DIR + folder + '/vis/' + line + '.xyz'
-        np.savetxt(points_save_path, pts[:,0:3])
+        # points_save_path = REF_DIR + folder + '/vis/' + line + '.xyz'
+        # np.savetxt(points_save_path, pts[:,0:3])
 
         # label
         if has_label:
             label_path = os.path.join(data_folder, 'label_2', line + '.txt')
             bounding_boxes, labels = load_label(label_path, Tr_velo_to_cam, R_cam_to_rect)
-            front_map, boxes_2d = get_map_and_boxes2d(pts, True, bounding_boxes)
+            boxes_2d = get_boxes2d(pts, bounding_boxes)
             xml_labels = []
 
             if len(boxes_2d) > 0:
@@ -85,7 +88,7 @@ def preprocess(split_list, has_label=False, tag='train'):
                     # if you use 3 catelories, you don't need so this step
                     if class_label in ['Pedestrian', 'Cyclist']:
                         class_label = 'Person'
-                    if class_label in cats and D1 < 80:
+                    if class_label in cats and D1 < D_MAX:
                         cat_id = cat_ids[class_label]
                         iscrowd = int(occluded != 0)
                         ann = {'image_id': image_id,
@@ -110,26 +113,15 @@ def preprocess(split_list, has_label=False, tag='train'):
                             
             xml_save_path = PRO_DIR + folder + '/VOCdevkit/Annotations/' + line + '.xml'
             writeInfoToXml(xml_labels, xml_save_path, line)
-        else:
-            front_map, _ = get_map_and_boxes2d(pts, True)
-        
-        if front_map is not None:
-            front_map_png = Image.fromarray(front_map)
-            front_png_save_path = PRO_DIR + folder + '/images/' + line + '.png'
-            front_map_png.save(front_png_save_path, 'png')
-            voc_png_save_path = PRO_DIR + folder + '/VOCdevkit/PNGImages/' + line + '.png'
-            front_map_png.save(voc_png_save_path, 'png')
             
     end = time.time()
-        
-    
     print("# images: ", len(ret['images']))
     print("# annotations: ", len(ret['annotations']))
     print("used time:%.2fs"%(end-start))    
     out_path = '{}/annotations/kitti_{}.json'.format(PRO_DIR+folder, tag)
     json.dump(ret, open(out_path, 'w'))
 
-
+@njit(nogil=True, cache=True)
 def crop_camera(pts, P, Tr_velo_to_cam, R_cam_to_rect):
     pts3d = pts.copy()
     pts3d[:, 3] = 1
@@ -171,15 +163,31 @@ def crop_camera(pts, P, Tr_velo_to_cam, R_cam_to_rect):
                           np.logical_and(zenith >= Z_MIN, zenith <= Z_MAX))
     return idx
 
-def fz(a):
-    return a[::-1]
+@njit(nogil=True, cache=True)
+def loop(corner_boxes, A_MIN, Z_MIN, D_MIN, a_range, z_range, d_range):
+    boxes_2d = []
+    for box3d in corner_boxes:
+        corner_x = box3d[:, 0]
+        corner_y = box3d[:, 1]
+        corner_z = box3d[:, 2]
+        corner_space_dist = np.sqrt(corner_x * corner_x + corner_y * corner_y + corner_z * corner_z)
+        corner_plane_dist = np.sqrt(corner_x * corner_x + corner_y * corner_y)
+        corner_azimuth = np.arcsin(corner_y / corner_plane_dist)
+        corner_zenith = np.arcsin(corner_z / corner_space_dist)
+        x1 = (corner_azimuth.min() - A_MIN) / a_range
+        x2 = (corner_azimuth.max() - A_MIN) / a_range
+        y1 = (corner_zenith.min() - Z_MIN) / z_range
+        y2 = (corner_zenith.max() - Z_MIN) / z_range
+        d1 = (corner_plane_dist.min() - D_MIN) / d_range
+        d2 = (corner_plane_dist.max() - D_MIN) / d_range
+
+        boxes_2d.append([x1, x2, y1, y2, d1, d2])
+
+    boxes_2d = np.array(boxes_2d, dtype=np.float32)
+    return boxes_2d
 
 
-def FZ(mat):
-    return np.array(fz(list(map(fz, mat))))
-
-# need further optimization for faster processing speed, such as C++ code
-def get_map_and_boxes2d(points, return_map=True, bounding_boxes=None):
+def get_boxes2d(points, bounding_boxes):
     x = points[:, 0]
     y = points[:, 1]
     z = points[:, 2]
@@ -197,98 +205,11 @@ def get_map_and_boxes2d(points, return_map=True, bounding_boxes=None):
     z_range = Z_MAX - Z_MIN
     d_range = D_MAX - D_MIN
     h_range = H_MAX - H_MIN
-    
-    if return_map:
 
-        height_ratio = (z - H_MIN) / h_range
-        dist_ratio = (plane_dist - D_MIN) / d_range
-        # here I use a fusion of 3 front maps to generate the final front map, and you can just use one of them
-        # 128x512
-        front_map_0 = np.zeros((128, 512, 3))
-        index_h_0 = np.floor((zenith - Z_MIN) / z_range * 128).astype(np.int)
-        index_w_0 = np.floor((azimuth - A_MIN) / a_range * 512).astype(np.int)
-        # 64x256
-        front_map_1 = np.zeros((64, 256, 3))
-        index_h_1 = np.floor((zenith - Z_MIN) / z_range * 64).astype(np.int)
-        index_w_1 = np.floor((azimuth - A_MIN) / a_range * 256).astype(np.int)
-        # 32x128
-        front_map_2 = np.zeros((32, 128, 3))
-        index_h_2 = np.floor((zenith - Z_MIN) / z_range * 32).astype(np.int)
-        index_w_2 = np.floor((azimuth - A_MIN) / a_range * 128).astype(np.int)
-        
-        
-        for i in range(len(points)):
-            if (index_h_0[i] < 128) and (index_w_0[i] < 512):
-                dr_0 = front_map_0[index_h_0[i], index_w_0[i], 1]
-                if (dr_0 == 0) or (dist_ratio[i] < dr_0):
-                    front_map_0[index_h_0[i], index_w_0[i], 2] = height_ratio[i]  # height ratio 0-1
-                    front_map_0[index_h_0[i], index_w_0[i], 1] = dist_ratio[i]  # dist ratio 0-1
-                    front_map_0[index_h_0[i], index_w_0[i], 0] = intensity[i]  # intensity 0-1
-                
-            if (index_h_1[i] < 64) and (index_w_1[i] < 256):
-                dr_1 = front_map_1[index_h_1[i], index_w_1[i], 1]
-                if (dr_1 == 0) or (dist_ratio[i] < dr_1):
-                    front_map_1[index_h_1[i], index_w_1[i], 2] = height_ratio[i]  # height ratio 0-1
-                    front_map_1[index_h_1[i], index_w_1[i], 1] = dist_ratio[i]  # dist ratio 0-1
-                    front_map_1[index_h_1[i], index_w_1[i], 0] = intensity[i]  # intensity 0-1
-                        
-            if (index_h_2[i] < 32) and (index_w_2[i] < 128):
-                dr_2 = front_map_2[index_h_2[i], index_w_2[i], 1]
-                if (dr_2 == 0) or (dist_ratio[i] < dr_2):
-                    front_map_2[index_h_2[i], index_w_2[i], 2] = height_ratio[i]  # height ratio 0-1
-                    front_map_2[index_h_2[i], index_w_2[i], 1] = dist_ratio[i]  # dist ratio 0-1
-                    front_map_2[index_h_2[i], index_w_2[i], 0] = intensity[i]  # intensity 0-1          
-    
-        front_map_0 = FZ(front_map_0)
-        front_map_0 = (front_map_0 * 255).astype(np.uint8)
-            
-        front_map_1 = FZ(front_map_1)
-        front_map_1 = (front_map_1 * 255).astype(np.uint8)
-        front_map_png_1 = Image.fromarray(front_map_1)
-        front_map_png_1 = front_map_png_1.resize((512, 128), Image.NEAREST)
-        front_map_1 = np.array(front_map_png_1)
-            
-        front_map_2 = FZ(front_map_2)
-        front_map_2 = (front_map_2 * 255).astype(np.uint8)
-        front_map_png_2 = Image.fromarray(front_map_2)
-        front_map_png_2 = front_map_png_2.resize((512, 128), Image.NEAREST)
-        front_map_2 = np.array(front_map_png_2)
-    
-        # fusion
-        front_map = front_map_0
-        mask = front_map == np.array([0,0,0])
-        front_map[mask] = front_map_1[mask]
-        mask = front_map == np.array([0,0,0])
-        front_map[mask] = front_map_2[mask]
-    else:
-        front_map = None
-
-    if bounding_boxes is not None:
-        corner_boxes = get_corner_boxes(bounding_boxes)
-        boxes_2d = []
-        for box3d in corner_boxes:
-            corner_x = box3d[:, 0]
-            corner_y = box3d[:, 1]
-            corner_z = box3d[:, 2]
-            corner_space_dist = np.sqrt(corner_x * corner_x + corner_y * corner_y + corner_z * corner_z)
-            corner_plane_dist = np.sqrt(corner_x * corner_x + corner_y * corner_y)
-            corner_azimuth = np.arcsin(corner_y / corner_plane_dist)
-            corner_zenith = np.arcsin(corner_z / corner_space_dist)
-            x1 = (corner_azimuth.min() - A_MIN) / a_range
-            x2 = (corner_azimuth.max() - A_MIN) / a_range
-            y1 = (corner_zenith.min() - Z_MIN) / z_range
-            y2 = (corner_zenith.max() - Z_MIN) / z_range
-            d1 = (corner_plane_dist.min() - D_MIN) / d_range
-            d2 = (corner_plane_dist.max() - D_MIN) / d_range
-
-            boxes_2d.append([x1, x2, y1, y2, d1, d2])
-
-        boxes_2d = np.array(boxes_2d, dtype=np.float32)
-        boxes_2d = np.clip(boxes_2d, 0.0, 1.0)
-    else:
-        boxes_2d = None
-
-    return front_map, boxes_2d
+    corner_boxes = get_corner_boxes(bounding_boxes)
+    boxes_2d = loop(corner_boxes, A_MIN, Z_MIN, D_MIN, a_range, z_range, d_range)
+    boxes_2d = np.clip(boxes_2d, 0.0, 1.0)
+    return boxes_2d
 
 
 def load_velodyne_points(pc_path):
@@ -331,8 +252,6 @@ def load_label(label_path, T_VELO_2_CAM, R_RECT_0):
         bounding_boxes[:, 3:6] = camera_to_lidar(center_coords, T_VELO_2_CAM, R_RECT_0)
     return bounding_boxes, care_labels
 
-
-
 def camera_to_lidar(points, T_VELO_2_CAM, R_RECT_0):
     N = points.shape[0]
     points_ext = np.hstack([points, np.ones((N, 1))]).T
@@ -341,9 +260,8 @@ def camera_to_lidar(points, T_VELO_2_CAM, R_RECT_0):
     points_ext = points_ext[:, 0:3]
     return points_ext
 
-
 def get_corner_boxes(center_boxes):
-    corner_boxes = []
+    corner_boxes = List()
     for box in center_boxes:
         h, w, l, x, y, z, ry = box
 
@@ -367,10 +285,10 @@ def get_corner_boxes(center_boxes):
 
     return corner_boxes
 
-
+@njit(nogil=True, cache=True)
 def filter_height(points):
     idx = np.logical_and(np.logical_and(points[:, 2] >= H_MIN, points[:, 2] <= H_MAX),
-                         np.logical_and(points[:, 0] >= 0, points[:, 0] <= 80))
+                         np.logical_and(points[:, 0] >= D_MIN, points[:, 0] <= D_MAX))
     return points[idx]
 
 def writeInfoToXml(labels, save_path, line):

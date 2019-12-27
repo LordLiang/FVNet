@@ -12,6 +12,9 @@ H_MAX = 1
 D_MIN = 0
 D_MAX = 80
 
+HEIGHT = 32
+WIDTH = 128
+
 d_range = D_MAX - D_MIN
 h_range = H_MAX - H_MIN
 
@@ -40,11 +43,12 @@ def preprocess(split_list, tag='train'):
 
         front_map = get_map_and_boxes2d(pts)
         front_map_png = Image.fromarray(front_map)
-        front_png_save_path = PRO_DIR + folder + '/images_128_256_512/' + line + '.png'
-        front_map_png.save(front_png_save_path, 'png')
+        front_map_png = front_map_png.resize((512, 128), Image.NEAREST)
+ 
     end = time.time()
-    print("used time:%.2fs, average time:%.5fs"%(end-start, (end-start)/3712))   
-       
+    return end-start
+    
+
 @njit(nogil=True, cache=True)
 def crop_camera(pts, P, Tr_velo_to_cam, R_cam_to_rect):
     pts3d = pts.copy()
@@ -94,33 +98,19 @@ def FZ(mat):
     return np.array(fz(list(map(fz, mat))))
 
 @njit(nogil=True, cache=True)
-def loop(num_point, front_map_0, front_map_1, front_map_2, index_h_0, index_h_1, index_h_2, index_w_0, index_w_1, index_w_2, height_ratio, dist_ratio, intensity):
-    h_0, w_0 = front_map_0.shape[0], front_map_0.shape[1]
-    h_1, w_1 = front_map_1.shape[0], front_map_1.shape[1]
-    h_2, w_2 = front_map_2.shape[0], front_map_2.shape[1]
+def loop(num_point, index_h, index_w, height_ratio, dist_ratio, intensity):
+    front_map = np.zeros((HEIGHT, WIDTH, 3))
     for i in range(num_point):
-        if (index_h_0[i] < h_0) and (index_w_0[i] < w_0):
-            dr_0 = front_map_0[index_h_0[i], index_w_0[i], 1]
-            if (dr_0 == 0) or (dist_ratio[i] < dr_0):
-                front_map_0[index_h_0[i], index_w_0[i], 2] = height_ratio[i]  # height ratio 0-1
-                front_map_0[index_h_0[i], index_w_0[i], 1] = dist_ratio[i]  # dist ratio 0-1
-                front_map_0[index_h_0[i], index_w_0[i], 0] = intensity[i]  # intensity 0-1
-            
-        if (index_h_1[i] < h_1) and (index_w_1[i] < w_1):
-            dr_1 = front_map_1[index_h_1[i], index_w_1[i], 1]
-            if (dr_1 == 0) or (dist_ratio[i] < dr_1):
-                front_map_1[index_h_1[i], index_w_1[i], 2] = height_ratio[i]  # height ratio 0-1
-                front_map_1[index_h_1[i], index_w_1[i], 1] = dist_ratio[i]  # dist ratio 0-1
-                front_map_1[index_h_1[i], index_w_1[i], 0] = intensity[i]  # intensity 0-1 
-                
-        if (index_h_2[i] < h_2) and (index_w_2[i] < w_2):
-            dr_2 = front_map_2[index_h_2[i], index_w_2[i], 1]
-            if (dr_2 == 0) or (dist_ratio[i] < dr_2):
-                front_map_2[index_h_2[i], index_w_2[i], 2] = height_ratio[i]  # height ratio 0-1
-                front_map_2[index_h_2[i], index_w_2[i], 1] = dist_ratio[i]  # dist ratio 0-1
-                front_map_2[index_h_2[i], index_w_2[i], 0] = intensity[i]  # intensity 0-1 
+        if (index_h[i] < HEIGHT) and (index_w[i] < WIDTH):
+            dr = front_map[index_h[i], index_w[i], 1]
+            if (dr == 0) or (dist_ratio[i] < dr):
+                front_map[index_h[i], index_w[i], 2] = height_ratio[i]  # height ratio 0-1
+                front_map[index_h[i], index_w[i], 1] = dist_ratio[i]  # dist ratio 0-1
+                front_map[index_h[i], index_w[i], 0] = intensity[i]  # intensity 0-1 
+    return front_map
                 
 def get_map_and_boxes2d(points):
+
     x = points[:, 0]
     y = points[:, 1]
     z = points[:, 2]
@@ -139,40 +129,12 @@ def get_map_and_boxes2d(points):
     height_ratio = (z - H_MIN) / h_range
     dist_ratio = (plane_dist - D_MIN) / d_range
 
-    # 128x512
-    front_map_0 = np.zeros((128, 512, 3))
-    index_h_0 = np.floor((zenith - Z_MIN) / z_range * 128).astype(np.int)
-    index_w_0 = np.floor((azimuth - A_MIN) / a_range * 512).astype(np.int)
-    # 64x256
-    front_map_1 = np.zeros((64, 256, 3))
-    index_h_1 = np.floor((zenith - Z_MIN) / z_range * 64).astype(np.int)
-    index_w_1 = np.floor((azimuth - A_MIN) / a_range * 256).astype(np.int)
-    # 32x128
-    front_map_2 = np.zeros((32, 128, 3))
-    index_h_2 = np.floor((zenith - Z_MIN) / z_range * 32).astype(np.int)
-    index_w_2 = np.floor((azimuth - A_MIN) / a_range * 128).astype(np.int)
+    index_h = np.floor((zenith - Z_MIN) / z_range * HEIGHT).astype(np.int)
+    index_w = np.floor((azimuth - A_MIN) / a_range * WIDTH).astype(np.int)
     
-    loop(len(points), front_map_0, front_map_1, front_map_2, index_h_0, index_h_1, index_h_2, index_w_0, index_w_1, index_w_2, height_ratio, dist_ratio, intensity)  
-    
-    front_map_0 = (front_map_0 * 255).astype(np.uint8)
-    
-    front_map_1 = (front_map_1 * 255).astype(np.uint8)
-    front_map_png_1 = Image.fromarray(front_map_1)
-    front_map_png_1 = front_map_png_1.resize((512, 128), Image.NEAREST)
-    front_map_1 = np.array(front_map_png_1)
-        
-    front_map_2 = (front_map_2 * 255).astype(np.uint8)
-    front_map_png_2 = Image.fromarray(front_map_2)
-    front_map_png_2 = front_map_png_2.resize((512, 128), Image.NEAREST)
-    front_map_2 = np.array(front_map_png_2)
-
-    # fusion
-    front_map = front_map_0
-    mask = front_map == np.array([0,0,0])
-    front_map[mask] = front_map_1[mask]
-    mask = front_map == np.array([0,0,0])
-    front_map[mask] = front_map_2[mask]
+    front_map = loop(len(points), index_h, index_w, height_ratio, dist_ratio, intensity)
     front_map = FZ(front_map)
+    front_map = (front_map * 255).astype(np.uint8)
     
     return front_map
 
@@ -215,7 +177,7 @@ def filter_height(points):
     return points[idx]
     
 if __name__ == '__main__':
-    preprocess('image_sets/train.txt', tag='train')
-    preprocess('image_sets/val.txt', tag='val')
-    preprocess('image_sets/test.txt', tag='test')
-
+    t1 = preprocess('image_sets/train.txt', tag='train')
+    t2 = preprocess('image_sets/val.txt', tag='val')
+    t3 = preprocess('image_sets/test.txt', tag='test')
+    print("used time:%.5fs, average time:%.5fs"%(t1+t2+t3, (t1+t2+t3)/14999))
