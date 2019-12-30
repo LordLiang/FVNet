@@ -87,7 +87,7 @@ class FvdetLoss(torch.nn.Module):
         dep_loss += self.crit_reg(output['dep'], batch['reg_mask'],
           batch['ind'], batch['dep']) / opt.num_stacks
           
-      if opt.dep_iou_weight > 0:
+      if opt.reg_depth_iou and opt.dep_iou_weight > 0:
         dep_iou_loss += self.crit_dep_iou(output['dep'], batch['reg_mask'],
           batch['ind'], batch['dep']) / opt.num_stacks
         
@@ -98,9 +98,14 @@ class FvdetLoss(torch.nn.Module):
     loss = opt.hm_weight * hm_loss + opt.wh_weight * wh_loss + \
            opt.dep_weight * dep_loss + opt.off_weight * off_loss + \
            opt.dep_iou_weight * dep_iou_loss
-           
+    
+    
     loss_stats = {'loss': loss, 'hm_loss': hm_loss,
-                  'wh_loss': wh_loss, 'dep_loss': dep_loss, 'dep_iou_loss': dep_iou_loss, 'off_loss': off_loss}
+                  'wh_loss': wh_loss, 'dep_loss': dep_loss}
+    if opt.reg_offset and opt.off_weight > 0:
+        loss_stats['off_loss'] = off_loss
+    if opt.reg_depth_iou and opt.dep_iou_weight > 0:
+        loss_stats['dep_iou_loss'] = dep_iou_loss
     return loss, loss_stats
 
 class FvdetTrainer(BaseTrainer):
@@ -108,7 +113,11 @@ class FvdetTrainer(BaseTrainer):
     super(FvdetTrainer, self).__init__(opt, model, optimizer=optimizer)
   
   def _get_losses(self, opt):
-    loss_states = ['loss', 'hm_loss', 'wh_loss', 'dep_loss', 'dep_iou_loss', 'off_loss']
+    loss_states = ['loss', 'hm_loss', 'wh_loss', 'dep_loss']
+    if opt.reg_offset and opt.off_weight > 0:
+        loss_states.append('off_loss')
+    if opt.reg_depth_iou and opt.dep_iou_weight > 0:
+        loss_states.append('dep_iou_loss')
     loss = FvdetLoss(opt)
     return loss_states, loss
 

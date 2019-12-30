@@ -13,9 +13,9 @@ import torch.utils.data as data
 class PascalFV2(data.Dataset):
   num_classes = 2
   default_resolution = [128, 512]
-  mean = np.array([0.221, 0.173, 0.411], 
+  mean = np.array([0.15987, 0.12914, 0.30040], 
                    dtype=np.float32).reshape(1, 1, 3)
-  std = np.array([0.161, 0.150, 0.223], 
+  std = np.array([0.17052, 0.14950, 0.26693], 
                    dtype=np.float32).reshape(1, 1, 3)
   
   def __init__(self, opt, split):
@@ -26,8 +26,8 @@ class PascalFV2(data.Dataset):
     else:
         self.folder = 'testing'
     self.data_dir = os.path.join(opt.data_dir, 'kitti_fvnet2', 'projection', self.folder)
-    self.img_dir = os.path.join(self.data_dir, 'images')
-    _ann_name = {'train': 'train', 'val': 'val'}
+    self.img_dir = os.path.join(self.data_dir, 'images_256')
+    _ann_name = {'train': 'train', 'val': 'val', 'test': 'test'}
     self.annot_path = os.path.join(
       self.data_dir, 'annotations', 
       'kitti_{}.json').format(_ann_name[split])
@@ -36,13 +36,7 @@ class PascalFV2(data.Dataset):
     self._valid_ids = np.arange(1, 3, dtype=np.int32)
     self.cat_ids = {v: i for i, v in enumerate(self._valid_ids)}
     self._data_rng = np.random.RandomState(123)
-    self._eig_val = np.array([0.2141788, 0.01817699, 0.00341571],
-                             dtype=np.float32)
-    self._eig_vec = np.array([
-        [-0.58752847, -0.69563484, 0.41340352],
-        [-0.5832747, 0.00994535, -0.81221408],
-        [-0.56089297, 0.71832671, 0.41158938]
-    ], dtype=np.float32)
+
     self.split = split
     self.opt = opt
 

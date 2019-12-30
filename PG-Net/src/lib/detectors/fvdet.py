@@ -31,7 +31,6 @@ class FvdetDetector(BaseDetector):
       hm = output['hm'].sigmoid_()
       wh = output['wh']
       dep = output['dep'].sigmoid_() * 80
-
       reg = output['reg'] if self.opt.reg_offset else None
       if self.opt.flip_test:
         hm = (hm[0:1] + flip_tensor(hm[1:2])) / 2

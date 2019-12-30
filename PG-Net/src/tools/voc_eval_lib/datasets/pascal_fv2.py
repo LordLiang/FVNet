@@ -232,8 +232,6 @@ class pascal_fv(imdb):
     print(cachedir)
     aps = []
     depth_ious = []
-    # The PASCAL VOC metric changed in 2010
-    use_07_metric = True
     if output_dir is not None and not os.path.isdir(output_dir):
       os.mkdir(output_dir)
     for i, cls in enumerate(self._classes):
@@ -242,7 +240,7 @@ class pascal_fv(imdb):
       filename = self._get_voc_results_file_template().format(cls)
       rec, prec, ap, depth_iou = fv_eval2(
         filename, annopath, imagesetfile, cls, cachedir, ovthresh=0.5,
-        use_07_metric=use_07_metric, use_diff=self.config['use_diff'])
+        use_diff=self.config['use_diff'])
       aps += [ap]
       depth_ious += [depth_iou]
       print(('AP for {} = {:.4f}, Depth AP for {} = {:.4f}'.format(cls, ap, cls, depth_iou)))

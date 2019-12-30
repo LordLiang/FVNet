@@ -8,9 +8,9 @@ import torch
 import json
 import cv2
 import os
-from utils.image import flip, color_aug
+from utils.image import flip
 from utils.image import get_affine_transform, affine_transform
-from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
+from utils.image import gaussian_radius, draw_umich_gaussian
 from utils.image import draw_dense_reg
 import math
 
@@ -77,8 +77,6 @@ class FVDetDataset(data.Dataset):
                          (input_w, input_h),
                          flags=cv2.INTER_LINEAR)
     inp = (inp.astype(np.float32) / 255.)
-    if self.split == 'train' and not self.opt.no_color_aug:
-      color_aug(self._data_rng, inp, self._eig_val, self._eig_vec)
     inp = (inp - self.mean) / self.std
     inp = inp.transpose(2, 0, 1)
 

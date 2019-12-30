@@ -12,9 +12,8 @@ H_MAX = 1
 D_MIN = 0
 D_MAX = 80
 
-# you can change the resolution
-HEIGHT = 32
-WIDTH = 128
+HEIGHT = 64
+WIDTH = 256
 
 d_range = D_MAX - D_MIN
 h_range = H_MAX - H_MIN
@@ -48,7 +47,7 @@ def preprocess(split_list, tag='train'):
         total_loss_rate += loss_rate
         front_map_png = Image.fromarray(front_map)
         front_map_png = front_map_png.resize((512, 128), Image.NEAREST)
-        front_png_save_path = PRO_DIR + folder + '/images/' + line + '.png'
+        front_png_save_path = PRO_DIR + folder + '/images_' + str(WIDTH) + '/' + line + '.png'
         front_map_png.save(front_png_save_path, 'png')   
     return total_loss_rate, total_empty_rate
     

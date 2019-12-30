@@ -60,8 +60,7 @@ class opts(object):
     # model
     self.parser.add_argument('--arch', default='dla_34', 
                              help='model architecture. Currently tested'
-                                  'res_18 | res_101 | resdcn_18 | resdcn_101 |'
-                                  'dlav0_34 | dla_34 | hourglass')
+                                  'res_34 | resdcn_34 | dlav0_34 | dla_34 | hourglass')
     self.parser.add_argument('--head_conv', type=int, default=-1,
                              help='conv layer channels for output head'
                                   '0 for no conv layer'
@@ -163,6 +162,8 @@ class opts(object):
                              help='category specific bounding box size.')
     self.parser.add_argument('--not_reg_offset', action='store_true',
                              help='not regress local offset.')
+    self.parser.add_argument('--not_reg_depth_iou', action='store_true',
+                             help='not regress depth iou.')
     
     # ground truth validation
     self.parser.add_argument('--eval_oracle_hm', action='store_true', 
@@ -190,6 +191,7 @@ class opts(object):
     opt.fix_res = not opt.keep_res
     print('Fix size testing.' if opt.fix_res else 'Keep resolution testing.')
     opt.reg_offset = not opt.not_reg_offset
+    opt.reg_depth_iou = not opt.not_reg_depth_iou
 
     if opt.head_conv == -1: # init default head_conv
       opt.head_conv = 256 if 'dla' in opt.arch else 64
@@ -261,7 +263,16 @@ class opts(object):
       assert 0, 'task not defined!'
     print('heads', opt.heads)
     return opt
-
+    
+  def init(self, args=''):
+    default_dataset_info = {
+      'ctdet': {'default_resolution': [512, 512], 'num_classes': 80, 
+                'mean': [0.408, 0.447, 0.470], 'std': [0.289, 0.274, 0.278],
+                'dataset': 'coco'},
+      'fvdet': {'default_resolution': [128, 512], 'num_classes': 2, 
+                'mean': [0.15987, 0.12914, 0.30040], 'std': [0.17052, 0.14950, 0.26693],
+                'dataset': 'fv2'},
+    }
     class Struct:
       def __init__(self, entries):
         for k, v in entries.items():

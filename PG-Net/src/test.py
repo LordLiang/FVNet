@@ -34,11 +34,7 @@ class PrefetchDataset(torch.utils.data.Dataset):
     image = cv2.imread(img_path)
     images, meta = {}, {}
     for scale in opt.test_scales:
-      if opt.task == 'ddd':
-        images[scale], meta[scale] = self.pre_process_func(
-          image, scale, img_info['calib'])
-      else:
-        images[scale], meta[scale] = self.pre_process_func(image, scale)
+      images[scale], meta[scale] = self.pre_process_func(image, scale)
     return img_id, {'images': images, 'image': image, 'meta': meta}
 
   def __len__(self):
@@ -79,7 +75,8 @@ def prefetch_test(opt):
 
   bar.finish()
   dataset.save_results(results, opt.save_dir)
-  dataset.run_eval(results, opt.save_dir)
+  if opt.test_split in ['train', 'val']:
+    dataset.run_eval(results, opt.save_dir)
 
 def test(opt):
   os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus_str
@@ -119,7 +116,8 @@ def test(opt):
     bar.next()
   bar.finish()
   dataset.save_results(results, opt.save_dir)
-  dataset.run_eval(results, opt.save_dir)
+  if opt.test_split in ['train', 'val']:
+    dataset.run_eval(results, opt.save_dir)
 
 if __name__ == '__main__':
   opt = opts().parse()

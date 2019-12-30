@@ -12,8 +12,8 @@ H_MAX = 1
 D_MIN = 0
 D_MAX = 80
 
-HEIGHT = 32
-WIDTH = 128
+HEIGHT = 64
+WIDTH = 256
 
 d_range = D_MAX - D_MIN
 h_range = H_MAX - H_MIN

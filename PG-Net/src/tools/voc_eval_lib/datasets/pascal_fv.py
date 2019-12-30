@@ -230,8 +230,6 @@ class pascal_fv(imdb):
       self._image_set + '.txt')
     cachedir = os.path.join(self._devkit_path, 'annotations_cache')
     aps = []
-    # The PASCAL VOC metric changed in 2010
-    use_07_metric = True
     if output_dir is not None and not os.path.isdir(output_dir):
       os.mkdir(output_dir)
     for i, cls in enumerate(self._classes):
@@ -240,7 +238,7 @@ class pascal_fv(imdb):
       filename = self._get_voc_results_file_template().format(cls)
       rec, prec, ap = fv_eval(
         filename, annopath, imagesetfile, cls, cachedir, ovthresh=0.5,
-        use_07_metric=use_07_metric, use_diff=self.config['use_diff'])
+        use_diff=self.config['use_diff'])
       aps += [ap]
       print(('AP for {} = {:.4f}'.format(cls, ap)))
       if output_dir is not None:
